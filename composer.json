@@ -1,0 +1,30 @@
+{
+    "name": "lwa/module-kit",
+    "description": "Build-time helpers shared by lwa_ PrestaShop modules: PrestaShop 8/9 shims, token gate, install helpers, queue bridge",
+    "type": "library",
+    "license": "MIT",
+    "require": {
+        "php": ">=8.1 <8.6"
+    },
+    "require-dev": {
+        "friendsofphp/php-cs-fixer": "^3.95",
+        "phpstan/phpstan": "^2.1",
+        "phpunit/phpunit": "^10.5 || ^11.5 || ^12.0",
+        "prestashop/php-dev-tools": "^5.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "LWA\\Kit\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "LWA\\Kit\\Tests\\": "tests/"
+        }
+    },
+    "config": {
+        "sort-packages": true,
+        "allow-plugins": false
+    },
+    "minimum-stability": "stable"
+}

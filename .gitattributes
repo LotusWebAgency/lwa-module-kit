@@ -1,0 +1,24 @@
+# Keep the dist archive Packagist and the registry serve down to runtime files only.
+# Everything below is development-time: it must never land in a consuming module's
+# vendor/lwa/module-kit/, because that directory is copied verbatim into a package that is
+# unzipped into a web-served modules/ directory.
+#
+# stubs/ is listed deliberately: it is referenced only by this repository's own phpstan.neon
+# (phpstan-only declarations for PrestaShop core and for lwa_queues' Api), never by any
+# runtime code path. If a consuming module ever needs to analyse against those declarations,
+# un-ignore stubs/ in the same commit that adds the reference.
+/.gitattributes    export-ignore
+/.github           export-ignore
+/.gitignore        export-ignore
+/.gitlab-ci.yml    export-ignore
+/.php-cs-fixer.dist.php export-ignore
+/.phpunit.cache    export-ignore
+/.superpowers      export-ignore
+/justfile          export-ignore
+/phpstan.neon      export-ignore
+/phpunit.xml.dist  export-ignore
+/stubs             export-ignore
+/tests             export-ignore
+/composer.lock     export-ignore
+/CHANGELOG.md      export-ignore
+/README.md         export-ignore

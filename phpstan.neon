@@ -1,0 +1,16 @@
+parameters:
+    level: 9
+    # Shipped code must parse and run on every PHP in the compatibility matrix, and the CI
+    # runner is not the floor: the lint/stan jobs run 8.3, the unit job 8.1 and 8.5. The
+    # min/max form makes phpstan analyse against the whole range, so an 8.2+ construct
+    # (readonly class, DNF type, typed class constant, #[\Override]) fails here instead of
+    # in a merchant's 8.1 shop.
+    phpVersion:
+        min: 80100
+        max: 80500
+    paths:
+        - src
+        - stubs/queue-trait-usage.php
+    scanFiles:
+        - stubs/prestashop.php
+    treatPhpDocTypesAsCertain: false
