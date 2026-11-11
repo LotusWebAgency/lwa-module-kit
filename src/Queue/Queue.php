@@ -19,9 +19,12 @@ declare(strict_types=1);
 
 namespace LWA\Kit\Queue;
 
+use LWA\Kit\Internal\HandlerName;
+use LWA\Kit\Internal\SafeLog;
+
 /**
  * Producer-side bridge to the lwa_queues module. Every call is safe when lwa_queues is
- * missing, disabled, absent, broken or a version this kit was not built against: dispatch()
+ * missing, disabled, broken or a version this kit was not built against: dispatch()
  * returns null and dispatchOrRun() executes the handler inline.
  *
  * LWA\Queues\Api is deliberately not part of this package and is left unscoped so every
@@ -48,6 +51,10 @@ final class Queue
 
     private static bool $loggedVersionMismatch = false;
 
+    /**
+     * Whether lwa_queues is installed, enabled, loadable and speaks SUPPORTED_API_VERSION.
+     * Never throws. Records why not for unavailableReason().
+     */
     public static function available(): bool
     {
         self::$unavailableReason = null;
@@ -78,14 +85,22 @@ final class Queue
             // That must degrade like any other unavailable state, not 500 every hook in
             // every lwa_* module on the page.
             self::$unavailableReason = sprintf('%s failed to load: %s', self::PROVIDER, $e->getMessage());
-            self::logProviderProbeFailure($e);
+            if (!self::$loggedProviderProbeFailure) {
+                self::$loggedProviderProbeFailure = true;
+                SafeLog::error(sprintf('[%s] queue provider probe failed: %s', self::PROVIDER, $e->getMessage()));
+            }
 
             return false;
         }
 
         if (!$compatible) {
             self::$unavailableReason = sprintf('%s speaks an API version this kit was not built against (kit requires API %d)', self::PROVIDER, self::SUPPORTED_API_VERSION);
-            self::logVersionMismatch();
+            // A provider that is present but incompatible is a misconfiguration, unlike
+            // the steady state "not installed": worth one log line per request.
+            if (!self::$loggedVersionMismatch) {
+                self::$loggedVersionMismatch = true;
+                SafeLog::error(sprintf('[%s] %s', self::PROVIDER, self::$unavailableReason));
+            }
 
             return false;
         }
@@ -103,37 +118,6 @@ final class Queue
     public static function unavailableReason(): ?string
     {
         return self::$unavailableReason;
-    }
-
-    private static function logProviderProbeFailure(\Throwable $e): void
-    {
-        if (self::$loggedProviderProbeFailure) {
-            return;
-        }
-
-        self::$loggedProviderProbeFailure = true;
-
-        if (class_exists(\PrestaShopLogger::class)) {
-            \PrestaShopLogger::addLog(sprintf('[%s] queue provider probe failed: %s', self::PROVIDER, $e->getMessage()), 3);
-        }
-    }
-
-    /**
-     * A provider that IS present but speaks a version this kit does not support is a
-     * misconfiguration, not a steady state like "lwa_queues isn't installed" — so, unlike
-     * that ordinary case, this is worth one log line per request rather than none.
-     */
-    private static function logVersionMismatch(): void
-    {
-        if (self::$loggedVersionMismatch) {
-            return;
-        }
-
-        self::$loggedVersionMismatch = true;
-
-        if (class_exists(\PrestaShopLogger::class)) {
-            \PrestaShopLogger::addLog(sprintf('[%s] %s', self::PROVIDER, self::$unavailableReason ?? 'API version mismatch'), 3);
-        }
     }
 
     /**
@@ -198,18 +182,16 @@ final class Queue
     }
 
     /**
-     * @param array<string, mixed> $payload
-     * @param array<string, mixed> $options
+     * Never throws. Null does not say why the job was not queued, so it is not a
+     * license to run the job yourself: dispatchOrRun() makes that distinction.
      *
-     * @return int|null the job id on success; null when lwa_queues is unavailable, when the
-     *                  queue refused the job, or when dispatching threw. The provider
-     *                  contract this kit targets is Api::dispatch(): ?int — per the design
-     *                  spec it returns null when it declines the job (oversize payload,
-     *                  invalid module name) and throws on database errors — so null from
-     *                  THIS method always means "the queue did not take this job", never
-     *                  "it took it and gave no id". A caller must not treat that null as
-     *                  license to run the job inline unless available() is also false; see
-     *                  dispatchOrRun(), which makes exactly that distinction.
+     * @param string $module the dispatching module's technical name
+     * @param string $handler a key of that module's lwaQueueHandlers() map
+     * @param array<string, mixed> $payload scalars and arrays only; it is stored as JSON
+     * @param array<string, mixed> $options passed through to LWA\Queues\Api::dispatch()
+     *
+     * @return int|null the job id; null when lwa_queues is unavailable, refused the job
+     *                  (oversize payload, invalid module name) or threw (logged)
      */
     public static function dispatch(string $module, string $handler, array $payload = [], array $options = []): ?int
     {
@@ -220,9 +202,7 @@ final class Queue
         try {
             return \LWA\Queues\Api::dispatch($module, $handler, $payload, $options);
         } catch (\Throwable $e) {
-            if (class_exists(\PrestaShopLogger::class)) {
-                \PrestaShopLogger::addLog(sprintf('[%s] queue dispatch of "%s" failed: %s', $module, self::sanitizeHandler($handler), $e->getMessage()), 3);
-            }
+            SafeLog::error(sprintf('[%s] queue dispatch of "%s" failed: %s', HandlerName::sanitize($module), HandlerName::sanitize($handler), $e->getMessage()));
 
             return null;
         }
@@ -230,25 +210,22 @@ final class Queue
 
     /**
      * Queues the job when lwa_queues is available, otherwise runs it now through the
-     * module's lwaQueueHandle() (see HandlesQueueJobs). A failure from an inline run is
-     * never swallowed: the job's exception (or InlineJobContext::fail()'s) propagates
-     * to the caller exactly as it would from any other synchronous call.
+     * module's lwaQueueHandle() (see HandlesQueueJobs).
      *
-     * Falling back to inline execution is gated on available(), not on dispatch()'s
-     * return value: a queue that WAS available but still handed back null (a refusal —
-     * oversize payload, invalid module name, a future dedupe or rate limit — or a caught
-     * dispatch failure) is never run inline here, because the bridge cannot tell a clean
-     * refusal from a failure that may already have persisted the job, and running it again
-     * would double-execute it. That null is never silent: it is written to
-     * PrestaShopLogger at severity 3 naming the module and handler, and returned to the
-     * caller, whose job it is to retry or surface it. Only genuine unavailability (no
-     * lwa_queues installed, disabled, or an incompatible API_VERSION) runs the job inline.
+     * The inline fallback is gated on available(), not on dispatch() returning null. A
+     * queue that was available and still returned null either refused the job or failed
+     * after it may have stored it, and the bridge cannot tell which; running the job
+     * inline could execute it twice. That case is logged and returned as null for the
+     * caller to retry or surface.
      *
      * @param array<string, mixed> $payload
      * @param array<string, mixed> $options
      *
-     * @return int|null the job id when queued, null when it ran inline or when the queue
-     *                  was available but declined the job
+     * @return int|null the job id when queued; null when it ran inline, or when the queue
+     *                  was available but did not take the job (the job was not performed)
+     *
+     * @throws \LogicException when the job must run inline and $module has no lwaQueueHandle()
+     * @throws \Throwable whatever an inline job throws; it is never swallowed
      */
     public static function dispatchOrRun(\Module $module, string $handler, array $payload = [], array $options = []): ?int
     {
@@ -260,40 +237,17 @@ final class Queue
         }
 
         if ($wasAvailable) {
-            if (class_exists(\PrestaShopLogger::class)) {
-                \PrestaShopLogger::addLog(sprintf('[%s] queue declined "%s"; not running it inline to avoid double execution — the job was NOT performed', $module->name, self::sanitizeHandler($handler)), 3);
-            }
+            SafeLog::error(sprintf('[%s] queue declined "%s"; not running it inline to avoid double execution — the job was NOT performed', $module->name, HandlerName::sanitize($handler)));
 
             return null;
         }
 
         if (!method_exists($module, 'lwaQueueHandle')) {
-            throw new \LogicException(sprintf('Module %s cannot run "%s" inline: it has no lwaQueueHandle() method (use the HandlesQueueJobs trait)', $module->name, self::sanitizeHandler($handler)));
+            throw new \LogicException(sprintf('Module %s cannot run "%s" inline: it has no lwaQueueHandle() method (use the HandlesQueueJobs trait)', $module->name, HandlerName::sanitize($handler)));
         }
 
         $module->lwaQueueHandle($handler, $payload, new InlineJobContext($handler));
 
         return null;
-    }
-
-    /**
-     * $handler crosses a module boundary (another module's dispatch() call, or lwa_queues
-     * itself) and lands verbatim in log and exception text. Strip control characters and
-     * cap the length so it cannot forge extra-looking log lines or bloat a message.
-     */
-    private static function sanitizeHandler(string $handler): string
-    {
-        // U+0085, U+2028 and U+2029 are line separators too, so they forge log lines
-        // just as well as \n. On invalid UTF-8 the /u pattern refuses to run at all,
-        // and then ASCII-only is the safe answer rather than passing the value through.
-        $clean = preg_replace('/[\x00-\x1F\x7F\x{0085}\x{2028}\x{2029}]/u', '', $handler);
-
-        if (null === $clean) {
-            $clean = preg_replace('/[^\x20-\x7E]/', '', $handler) ?? '';
-        }
-
-        // Cut on character boundaries: a byte-wise substr can split a codepoint and hand
-        // PrestaShopLogger invalid utf8mb4, which MySQL then rejects.
-        return mb_strlen($clean, 'UTF-8') > 64 ? mb_substr($clean, 0, 64, 'UTF-8') . '…' : $clean;
     }
 }

@@ -19,9 +19,16 @@ declare(strict_types=1);
 
 namespace LWA\Kit\Queue;
 
+use LWA\Kit\Internal\HandlerName;
+
 /**
  * Gives a module main class the lwaQueueHandle() callback that lwa_queues (and the
- * inline fallback) invoke. The module maps handler names to Job classes.
+ * inline fallback) invoke. The module maps handler names to Job classes:
+ *
+ *   protected function lwaQueueHandlers(): array
+ *   {
+ *       return ['sync-product' => SyncProductJob::class];
+ *   }
  */
 trait HandlesQueueJobs
 {
@@ -36,40 +43,23 @@ trait HandlesQueueJobs
      * from the fixed lwaQueueHandlers() map this module itself controls.
      *
      * @param array<string, mixed> $payload
+     * @param object $context LWA\Queues\JobContext or InlineJobContext, see Job
+     *
+     * @throws \InvalidArgumentException for a handler name that is not in the map
+     * @throws \LogicException when the mapped class does not implement Job
      */
     public function lwaQueueHandle(string $handler, array $payload, object $context): void
     {
         $handlers = $this->lwaQueueHandlers();
         if (!isset($handlers[$handler])) {
-            throw new \InvalidArgumentException(sprintf('Unknown queue handler "%s"', self::sanitizeHandler($handler)));
+            throw new \InvalidArgumentException(sprintf('Unknown queue handler "%s"', HandlerName::sanitize($handler)));
         }
 
         $class = $handlers[$handler];
         if (!is_subclass_of($class, Job::class)) {
-            throw new \LogicException(sprintf('Handler "%s" maps to %s, which does not implement %s', self::sanitizeHandler($handler), $class, Job::class));
+            throw new \LogicException(sprintf('Handler "%s" maps to %s, which does not implement %s', HandlerName::sanitize($handler), $class, Job::class));
         }
 
         (new $class($payload))->handle($context);
-    }
-
-    /**
-     * $handler arrives from another module (lwa_queues, or a caller of dispatchOrRun())
-     * and lands verbatim in exception text. Strip control characters and cap the length
-     * so it cannot forge extra-looking log lines or bloat a message.
-     */
-    private static function sanitizeHandler(string $handler): string
-    {
-        // U+0085, U+2028 and U+2029 are line separators too, so they forge log lines
-        // just as well as \n. On invalid UTF-8 the /u pattern refuses to run at all,
-        // and then ASCII-only is the safe answer rather than passing the value through.
-        $clean = preg_replace('/[\x00-\x1F\x7F\x{0085}\x{2028}\x{2029}]/u', '', $handler);
-
-        if (null === $clean) {
-            $clean = preg_replace('/[^\x20-\x7E]/', '', $handler) ?? '';
-        }
-
-        // Cut on character boundaries: a byte-wise substr can split a codepoint and hand
-        // PrestaShopLogger invalid utf8mb4, which MySQL then rejects.
-        return mb_strlen($clean, 'UTF-8') > 64 ? mb_substr($clean, 0, 64, 'UTF-8') . '…' : $clean;
     }
 }

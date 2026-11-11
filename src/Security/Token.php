@@ -19,19 +19,34 @@ declare(strict_types=1);
 
 namespace LWA\Kit\Security;
 
+/**
+ * Shared-secret tokens for cron URLs, front controllers and AJAX endpoints.
+ */
 final class Token
 {
+    private const MIN_BYTES = 16;
+
+    /**
+     * @param int $bytes amount of randomness; the result is twice as many hex characters
+     *
+     * @throws \InvalidArgumentException below 16 bytes
+     */
     public static function generate(int $bytes = 24): string
     {
-        if ($bytes < 16) {
-            throw new \InvalidArgumentException('A token needs at least 16 random bytes');
+        if ($bytes < self::MIN_BYTES) {
+            throw new \InvalidArgumentException(sprintf('A token needs at least %d random bytes', self::MIN_BYTES));
         }
 
         return bin2hex(random_bytes($bytes));
     }
 
-    public static function equals(string $expected, string $provided): bool
-    {
+    /**
+     * Constant-time comparison. An empty expected token never matches.
+     */
+    public static function equals(
+        #[\SensitiveParameter] string $expected,
+        #[\SensitiveParameter] string $provided,
+    ): bool {
         if ('' === $expected) {
             return false;
         }

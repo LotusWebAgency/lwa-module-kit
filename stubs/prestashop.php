@@ -59,6 +59,12 @@ namespace {
             return false;
         }
 
+        /** @param mixed $values */
+        public static function updateGlobalValue(string $key, $values, bool $html = false): bool
+        {
+            return false;
+        }
+
         public static function deleteByName(string $key): bool
         {
             return false;

@@ -20,7 +20,9 @@ declare(strict_types=1);
 namespace LWA\Kit\Security;
 
 /**
- * Gate for module front controllers and AJAX endpoints.
+ * Gate for module front controllers and AJAX endpoints: the request must carry the
+ * module's configured token. A configured token shorter than MIN_TOKEN_LENGTH never
+ * passes, even when the request supplies it exactly.
  *
  * Usage in a ModuleFrontController:
  *   $gate = TokenGate::fromConfiguration('LWA_TEMPLATE_TOKEN');
@@ -41,7 +43,7 @@ final class TokenGate
 
     private bool $cliAllowed = false;
 
-    public function __construct(private string $expected)
+    public function __construct(#[\SensitiveParameter] private string $expected)
     {
     }
 
@@ -52,6 +54,11 @@ final class TokenGate
         return new self(is_string($value) ? $value : '');
     }
 
+    /**
+     * Returns a copy that also lets a console process through without a token: PHP runs
+     * under the cli SAPI and no web request is in flight. Both are facts of the process,
+     * never of the request, so a web client cannot claim them.
+     */
     public function allowCli(): self
     {
         $gate = clone $this;
@@ -62,12 +69,10 @@ final class TokenGate
 
     /**
      * @param string|null $provided the token from the request, null when absent
-     * @param string $sapi @internal PHP_SAPI, injectable only so tests can simulate a
-     *                     console process; callers must never pass request data into it
      */
-    public function passes(?string $provided, string $sapi = \PHP_SAPI): bool
+    public function passes(#[\SensitiveParameter] ?string $provided): bool
     {
-        if ($this->cliAllowed && 'cli' === $sapi && !isset($_SERVER['REQUEST_METHOD'])) {
+        if ($this->cliAllowed && 'cli' === \PHP_SAPI && !isset($_SERVER['REQUEST_METHOD'])) {
             return true;
         }
 
@@ -83,6 +88,8 @@ final class TokenGate
     }
 
     /**
+     * The JSON body for a refused request. It says nothing about why.
+     *
      * @return array{error: string}
      */
     public function denyPayload(): array

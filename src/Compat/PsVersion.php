@@ -19,6 +19,12 @@ declare(strict_types=1);
 
 namespace LWA\Kit\Compat;
 
+use LWA\Kit\Internal\PsConstant;
+
+/**
+ * The running PrestaShop version, for the few places a module must branch on it.
+ * Reports "0.0.0" outside PrestaShop.
+ */
 final class PsVersion
 {
     private static ?string $override = null;
@@ -29,7 +35,7 @@ final class PsVersion
             return self::$override;
         }
 
-        return defined('_PS_VERSION_') ? (string) constant('_PS_VERSION_') : '0.0.0';
+        return defined('_PS_VERSION_') ? PsConstant::string('_PS_VERSION_') : '0.0.0';
     }
 
     public static function major(): int
@@ -37,6 +43,9 @@ final class PsVersion
         return (int) explode('.', self::current())[0];
     }
 
+    /**
+     * @param string $version a version_compare() operand, e.g. "8.2.0"
+     */
     public static function atLeast(string $version): bool
     {
         return version_compare(self::current(), $version, '>=');
@@ -48,7 +57,7 @@ final class PsVersion
     }
 
     /**
-     * Tests only. Production code reads _PS_VERSION_.
+     * @internal test seam; pass null to read _PS_VERSION_ again
      */
     public static function overrideForTests(?string $version): void
     {

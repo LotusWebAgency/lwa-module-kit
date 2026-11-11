@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace LWA\Kit\Tests\Unit\Install;
 
 use LWA\Kit\Install\ModuleInstaller;
+use LWA\Kit\Install\SqlRunner;
+use LWA\Kit\Internal\PsConstant;
 use PHPUnit\Framework\TestCase;
 
 final class ModuleInstallerTest extends TestCase
@@ -18,7 +20,7 @@ final class ModuleInstallerTest extends TestCase
         \Configuration::reset();
         $this->module = new \Module();
         $this->module->name = 'lwa_fixture';
-        $this->installer = new ModuleInstaller($this->module, __DIR__ . '/../../Fixtures', 'ps_', 'InnoDB');
+        $this->installer = new ModuleInstaller($this->module, new SqlRunner(__DIR__ . '/../../Fixtures', 'ps_', 'InnoDB'));
     }
 
     public function testRunsEveryStatementWithSubstitution(): void
@@ -48,7 +50,7 @@ final class ModuleInstallerTest extends TestCase
 
     public function testSeedsOnlyMissingConfiguration(): void
     {
-        \Configuration::updateValue('LWA_FIXTURE_KEEP', 'existing');
+        \Configuration::updateGlobalValue('LWA_FIXTURE_KEEP', 'existing');
 
         self::assertTrue($this->installer->seedConfiguration([
             'LWA_FIXTURE_KEEP' => 'default',
@@ -57,6 +59,43 @@ final class ModuleInstallerTest extends TestCase
 
         self::assertSame('existing', \Configuration::get('LWA_FIXTURE_KEEP'));
         self::assertSame('1', \Configuration::get('LWA_FIXTURE_ENABLED'));
+    }
+
+    public function testSeedingNeverTouchesAShopLevelValue(): void
+    {
+        // Multistore: the merchant set the key for one shop only, so the global scope is
+        // empty. The default goes to the global scope and the shop's value stays.
+        \Configuration::updateValue('LWA_FIXTURE_KEEP', 'shop value');
+
+        self::assertTrue($this->installer->seedConfiguration(['LWA_FIXTURE_KEEP' => 'default']));
+
+        self::assertSame('shop value', \Configuration::$values['LWA_FIXTURE_KEEP']);
+        self::assertSame('default', \Configuration::$global['LWA_FIXTURE_KEEP']);
+    }
+
+    public function testSeedingStopsAtTheFirstFailedWrite(): void
+    {
+        \Configuration::$failOn = ['LWA_FIXTURE_BROKEN'];
+
+        self::assertFalse($this->installer->seedConfiguration([
+            'LWA_FIXTURE_BROKEN' => 1,
+            'LWA_FIXTURE_AFTER' => 1,
+        ]));
+        self::assertFalse(\Configuration::hasKey('LWA_FIXTURE_AFTER'));
+    }
+
+    public function testAMissingPrestaShopConstantIsALogicError(): void
+    {
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('_LWA_NEVER_DEFINED_');
+        PsConstant::string('_LWA_NEVER_DEFINED_');
+    }
+
+    public function testAScriptWithoutStatementsIsAnError(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('holds no statement');
+        $this->installer->runSqlFile('sql/empty.sql');
     }
 
     public function testForModuleReadsTheStorePathAndPrefixFromPrestaShopConstants(): void

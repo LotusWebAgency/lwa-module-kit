@@ -19,53 +19,42 @@ declare(strict_types=1);
 
 namespace LWA\Kit\Install;
 
+/**
+ * Removes a module's tables and configuration in uninstall(). PrestaShop removes the
+ * hooks and tabs itself. A module that keeps its data on uninstall does not call this:
+ *
+ *   return parent::uninstall()
+ *       && ($keepData || ModuleUninstaller::forModule($this)->run('sql/uninstall.sql', Settings::keys()));
+ */
 final class ModuleUninstaller
 {
-    public function __construct(
-        private \Module $module,
-        private string $modulePath,
-        private string $dbPrefix,
-        private string $engine,
-    ) {
+    public function __construct(private SqlRunner $sql)
+    {
     }
 
     /**
-     * Not used by run(): uninstalling touches only SQL and Configuration keys, and
-     * PrestaShop itself removes the module's hooks and tabs. Kept for callers that
-     * want the module instance back after uninstalling, and so the constructor
-     * mirrors ModuleInstaller's.
+     * @throws \LogicException outside a booted PrestaShop
      */
-    public function module(): \Module
-    {
-        return $this->module;
-    }
-
     public static function forModule(\Module $module): self
     {
-        return new self(
-            $module,
-            rtrim((string) constant('_PS_MODULE_DIR_'), '/') . '/' . $module->name,
-            (string) constant('_DB_PREFIX_'),
-            (string) constant('_MYSQL_ENGINE_')
-        );
+        return new self(SqlRunner::forModule($module));
     }
 
     /**
-     * With $keepData the tables and the configuration stay; PrestaShop still removes hooks and tabs itself.
+     * Runs the SQL script, then deletes the configuration keys in every shop scope. The
+     * keys are left alone when the script fails, so a retry still finds the settings.
      *
+     * @param string $sqlRelativePath path inside the module directory, e.g. "sql/uninstall.sql"
      * @param list<string> $configKeys
+     *
+     * @return bool false when a statement failed
+     *
+     * @throws \RuntimeException when the file is unreadable or holds no statement
      */
-    public function run(string $sqlRelativePath, array $configKeys, bool $keepData): bool
+    public function run(string $sqlRelativePath, array $configKeys): bool
     {
-        if ($keepData) {
-            return true;
-        }
-
-        $db = \Db::getInstance();
-        foreach (SqlScript::load($this->modulePath . '/' . ltrim($sqlRelativePath, '/'), $this->dbPrefix, $this->engine) as $statement) {
-            if (!$db->execute($statement)) {
-                return false;
-            }
+        if (!$this->sql->run($sqlRelativePath)) {
+            return false;
         }
 
         foreach ($configKeys as $key) {

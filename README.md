@@ -15,30 +15,98 @@ scalars and arrays are allowed to cross that boundary.
 
 ## Components
 
-`Compat\PsVersion`, `Compat\AdminControllerBase`, `Security\Token`,
-`Security\TokenGate`, `Install\SqlScript`, `Install\ModuleInstaller`,
-`Install\ModuleUninstaller`, `Clock`, `Queue\Queue`, `Queue\HandlesQueueJobs`,
-`Queue\Job`, `Queue\InlineJobContext`.
+| Class | What it is for |
+|---|---|
+| `Clock` | UTC storage, shop time at display. |
+| `Security\Token`, `Security\TokenGate` | Shared-secret tokens and the gate every front controller and AJAX endpoint goes through. |
+| `Install\ModuleInstaller`, `Install\ModuleUninstaller`, `Install\SqlScript` | The steps of `install()` and `uninstall()`. |
+| `Compat\AdminControllerBase`, `Compat\PsVersion` | One admin controller parent for PrestaShop 8 and 9; version checks. |
+| `Queue\Queue`, `Queue\HandlesQueueJobs`, `Queue\Job`, `Queue\InlineJobContext` | The bridge to `lwa_queues`. |
+
+Everything under `Internal\`, and `Install\SqlRunner`, is `@internal`: a module must not
+call it.
+
+## Clock
+
+    $now = Clock::utcNow();                          // '2026-11-11 09:30:00', what goes into a DATETIME column
+    $shown = Clock::forShop()->toShopTime($row['created_at']);
+    $stored = Clock::forShop()->toUtc('2026-11-11 12:30:00');
+
+`toShopTime()` and `toUtc()` accept exactly `Y-m-d H:i:s` and a real calendar date.
+Anything else throws `\InvalidArgumentException`: an empty string, `0000-00-00 00:00:00`,
+`tomorrow`, a value with an offset, February 31. Check a nullable column for `null`
+before converting it.
 
 ## Security
 
+    $gate = TokenGate::fromConfiguration('LWA_FOO_TOKEN');
+    if (!$gate->passes(is_string($token = Tools::getValue('token')) ? $token : null)) {
+        http_response_code(403);
+        header('Content-Type: application/json');
+        $this->ajaxRender(json_encode($gate->denyPayload()));
+        exit;
+    }
+
 `Security\TokenGate` always refuses a configured token shorter than
 `TokenGate::MIN_TOKEN_LENGTH` (32 characters), even if the caller supplies it
-exactly — tokens must come from `Token::generate()`, whose 16-byte floor
-produces at least 32 hex characters.
+exactly. Tokens must come from `Token::generate()`, whose 16-byte floor
+produces at least 32 hex characters. `allowCli()` returns a gate that also lets
+a console process through without a token.
 
-## Install / uninstall SQL
+## Install / uninstall
+
+    // install()
+    $installer = ModuleInstaller::forModule($this);
+
+    return parent::install()
+        && $installer->runSqlFile('sql/install.sql')
+        && $installer->registerHooks(['actionCronJob'])
+        && $installer->seedConfiguration(['LWA_FOO_ENABLED' => 1]);
+
+    // uninstall()
+    return parent::uninstall()
+        && ($keepData || ModuleUninstaller::forModule($this)->run('sql/uninstall.sql', Settings::keys()));
+
+- `runSqlFile()` and `run()` return `false` as soon as a statement fails. Statements
+  already executed stay applied, so write re-runnable SQL (`CREATE TABLE IF NOT EXISTS`,
+  `DROP TABLE IF EXISTS`). An unreadable file, or one with no statement in it, throws
+  `\RuntimeException`.
+- `seedConfiguration()` writes shop-wide defaults for keys that have no global value yet.
+  It never overwrites, and never writes into a single shop's scope.
+- `ModuleUninstaller::run()` deletes the configuration keys only after the SQL succeeded.
+
+### SQL files
 
 Install and uninstall SQL files, as parsed by `Install\SqlScript::split()`,
 must end every statement with `;` followed by a newline. A statement may span
 as many lines as it likes — a multi-line `CREATE TABLE` is fine. Full-line
-`--` comments are fine, but no inline trailing `-- comment` and no newlines
-inside string literals.
+`--` comments are the only comment form: no inline trailing `-- comment`, no
+`#`, no `/* */`. No newlines inside string literals. `PREFIX_` and
+`ENGINE_TYPE` are replaced wherever they appear, string literals included.
+
+## Admin controllers
+
+A module's admin controller extends `Compat\AdminControllerBase`, takes every
+dependency through its constructor and is registered as a service. Use only
+`render`, `generateUrl`, `createForm`, `addFlash` and `redirectToRoute` from the
+parent: those work on both majors. `presentGrid()` does not work on 8.x; inject
+`GridPresenterInterface` and call `present()`.
 
 ## Queue bridge
 
 `Queue\Queue` bridges to the lwa_queues module and has sharp edges module
 authors need to know about:
+
+    // In the module main class
+    use HandlesQueueJobs;
+
+    protected function lwaQueueHandlers(): array
+    {
+        return ['sync-product' => SyncProductJob::class];   // SyncProductJob implements Queue\Job
+    }
+
+    // Anywhere in the module
+    Queue::dispatchOrRun($this, 'sync-product', ['id_product' => 42]);
 
 - An inline job (run when lwa_queues is missing, disabled, broken, or a
   version this kit isn't compatible with) executes synchronously inside
@@ -67,13 +135,18 @@ authors need to know about:
 
 ## Rules
 
-PHP 8.1 syntax, no PrestaShop class referenced without a `class_exists` guard
-or a constructor argument, every public method unit-tested with the fakes in
-`tests/Fakes`.
+PHP 8.1 syntax. The queue bridge must load and degrade where PrestaShop or
+`lwa_queues` is absent or broken, so it reaches PrestaShop classes only behind
+`class_exists()`; the other components assume a booted shop. Every public
+method is unit-tested with the fakes in `tests/Fakes`. The fakes are hand-written, so
+the same assumptions are checked against the real PrestaShop classes by
+`tests/Integration/KitContractTest.php` in `module-template`, which the matrix
+runs on every PrestaShop cell. PHPStan runs at level
+`max` with strict rules over PHP 8.1 to 8.5.
 
 ## Consuming
 
-    composer require lwa/module-kit:^0.2
+    composer require lwa/module-kit:^0.3
 
 The kit is published on Packagist. It is a build-time dependency: a module must
 not ship it as-is, it has to prefix it with php-scoper first.

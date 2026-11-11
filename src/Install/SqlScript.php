@@ -19,6 +19,16 @@ declare(strict_types=1);
 
 namespace LWA\Kit\Install;
 
+/**
+ * Turns an install.sql / uninstall.sql file into a list of executable statements.
+ *
+ * Authoring contract:
+ * - Every statement ends with ";" followed by a newline. A statement may span lines.
+ * - Comments are full-line "--" only. No trailing "-- comment", no "#", no block comments.
+ * - No newline inside a string literal.
+ * - "PREFIX_" and "ENGINE_TYPE" are replaced wherever they appear, string literals
+ *   included, with the shop's table prefix and storage engine.
+ */
 final class SqlScript
 {
     public static function substitute(string $sql, string $prefix, string $engine): string
@@ -28,20 +38,24 @@ final class SqlScript
 
     /**
      * Splits on ";" followed by a line break, the same rule PrestaShop's installer uses,
-     * drops "--" comment lines and empty chunks.
-     *
-     * Contract callers must meet: every statement ends with ";" followed by a newline.
-     * A statement may span as many lines as it likes. No inline trailing "-- comment"
-     * (full-line "--" comments are fine); no newlines inside string literals.
+     * and drops "--" comment lines and empty chunks.
      *
      * @return list<string>
+     *
+     * @throws \RuntimeException when PCRE fails on the script (e.g. invalid input or a
+     *                           backtrack limit), rather than returning a partial list
      */
     public static function split(string $sql): array
     {
-        $withoutComments = preg_replace('/^\s*--.*$/m', '', $sql) ?? $sql;
+        $withoutComments = preg_replace('/^\s*--.*$/m', '', $sql);
+        $chunks = null === $withoutComments ? false : preg_split('/;\s*[\r\n]+/', $withoutComments);
+        if (!is_array($chunks)) {
+            throw new \RuntimeException(sprintf('Cannot split the SQL script: %s', preg_last_error_msg()));
+        }
+
         $statements = [];
-        foreach (preg_split('/;\s*[\r\n]+/', $withoutComments) ?: [] as $chunk) {
-            $chunk = trim(rtrim(trim($chunk), ';'));
+        foreach ($chunks as $chunk) {
+            $chunk = trim($chunk, "; \t\n\r\0\x0B");
             if ('' !== $chunk) {
                 $statements[] = $chunk;
             }
@@ -51,7 +65,10 @@ final class SqlScript
     }
 
     /**
-     * @return list<string>
+     * @return non-empty-list<string>
+     *
+     * @throws \RuntimeException when the file is unreadable or holds no statement: a
+     *                           script that runs nothing is a packaging error, not a success
      */
     public static function load(string $path, string $prefix, string $engine): array
     {
@@ -60,6 +77,11 @@ final class SqlScript
             throw new \RuntimeException(sprintf('Cannot read SQL file "%s"', $path));
         }
 
-        return self::split(self::substitute($sql, $prefix, $engine));
+        $statements = self::split(self::substitute($sql, $prefix, $engine));
+        if ([] === $statements) {
+            throw new \RuntimeException(sprintf('SQL file "%s" holds no statement', $path));
+        }
+
+        return $statements;
     }
 }

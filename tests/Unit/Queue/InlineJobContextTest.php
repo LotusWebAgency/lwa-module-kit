@@ -43,5 +43,8 @@ final class InlineJobContextTest extends TestCase
         (new InlineJobContext('ping'))->log('hello');
 
         self::assertSame('[lwa inline:ping] hello', \PrestaShopLogger::$logs[0]['message']);
+
+        (new InlineJobContext('ping'))->log('Готово: 你好 مرحبا 🚚');
+        self::assertSame('[lwa inline:ping] Готово: 你好 مرحبا 🚚', \PrestaShopLogger::$logs[1]['message']);
     }
 }

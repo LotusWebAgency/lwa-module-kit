@@ -27,18 +27,18 @@ namespace LWA\Kit\Compat;
  */
 if (class_exists(\PrestaShopBundle\Controller\Admin\PrestaShopAdminController::class)) {
     /**
-     * PHPStan resolves the FIRST class declaration in a runtime if/else block regardless of which
-     * branch actually executes, and on a PrestaShop 8 tree that branch's parent does not exist at
-     * all -- so every inherited method reads as undefined and each module would need its own
-     * ignoreErrors entry over its admin controller, which is where a level-6 promise quietly turns
-     * into level 0 on the most security-relevant file in the module. These @method tags supply what
-     * the unresolvable parent would have. They are duplicated on both branches on purpose: the tags
-     * only count when attached to the declaration PHPStan happens to resolve, and which one that is
-     * depends on the tree being analysed.
+     * PHPStan resolves the first class declaration in a runtime if/else block whichever
+     * branch executes, and on a PrestaShop 8 tree that branch's parent does not exist, so
+     * every inherited method would read as undefined. These @method tags supply what the
+     * unresolvable parent would have; they sit on both branches because which declaration
+     * PHPStan resolves depends on the tree being analysed.
+     *
+     * Only methods that work on both majors are listed. presentGrid() is left out on
+     * purpose: on 8.x it reaches for a service the module controller locator does not
+     * provide. Inject GridPresenterInterface and call present() instead.
      *
      * @method \Symfony\Component\HttpFoundation\Response render(string $view, array<string, mixed> $parameters = [], ?\Symfony\Component\HttpFoundation\Response $response = null)
      * @method string generateUrl(string $route, array<string, mixed> $parameters = [], int $referenceType = 1)
-     * @method array<string, mixed> presentGrid(\PrestaShop\PrestaShop\Core\Grid\GridInterface $grid)
      * @method \Symfony\Component\Form\FormInterface createForm(string $type, mixed $data = null, array<string, mixed> $options = [])
      * @method void addFlash(string $type, mixed $message)
      * @method \Symfony\Component\HttpFoundation\RedirectResponse redirectToRoute(string $route, array<string, mixed> $parameters = [], int $status = 302)
@@ -48,18 +48,18 @@ if (class_exists(\PrestaShopBundle\Controller\Admin\PrestaShopAdminController::c
     }
 } else {
     /**
-     * PHPStan resolves the FIRST class declaration in a runtime if/else block regardless of which
-     * branch actually executes, and on a PrestaShop 8 tree that branch's parent does not exist at
-     * all -- so every inherited method reads as undefined and each module would need its own
-     * ignoreErrors entry over its admin controller, which is where a level-6 promise quietly turns
-     * into level 0 on the most security-relevant file in the module. These @method tags supply what
-     * the unresolvable parent would have. They are duplicated on both branches on purpose: the tags
-     * only count when attached to the declaration PHPStan happens to resolve, and which one that is
-     * depends on the tree being analysed.
+     * PHPStan resolves the first class declaration in a runtime if/else block whichever
+     * branch executes, and on a PrestaShop 8 tree that branch's parent does not exist, so
+     * every inherited method would read as undefined. These @method tags supply what the
+     * unresolvable parent would have; they sit on both branches because which declaration
+     * PHPStan resolves depends on the tree being analysed.
+     *
+     * Only methods that work on both majors are listed. presentGrid() is left out on
+     * purpose: on 8.x it reaches for a service the module controller locator does not
+     * provide. Inject GridPresenterInterface and call present() instead.
      *
      * @method \Symfony\Component\HttpFoundation\Response render(string $view, array<string, mixed> $parameters = [], ?\Symfony\Component\HttpFoundation\Response $response = null)
      * @method string generateUrl(string $route, array<string, mixed> $parameters = [], int $referenceType = 1)
-     * @method array<string, mixed> presentGrid(\PrestaShop\PrestaShop\Core\Grid\GridInterface $grid)
      * @method \Symfony\Component\Form\FormInterface createForm(string $type, mixed $data = null, array<string, mixed> $options = [])
      * @method void addFlash(string $type, mixed $message)
      * @method \Symfony\Component\HttpFoundation\RedirectResponse redirectToRoute(string $route, array<string, mixed> $parameters = [], int $status = 302)

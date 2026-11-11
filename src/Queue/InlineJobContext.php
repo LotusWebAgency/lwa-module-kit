@@ -19,8 +19,12 @@ declare(strict_types=1);
 
 namespace LWA\Kit\Queue;
 
+use LWA\Kit\Internal\SafeLog;
+
 /**
- * Mirrors LWA\Queues\JobContext for jobs executed inline because lwa_queues is absent.
+ * Mirrors LWA\Queues\JobContext for jobs executed inline because lwa_queues is
+ * unavailable. There is one attempt and nothing to retry on: release() and fail() both
+ * throw, and the exception reaches the caller of Queue::dispatchOrRun().
  */
 final class InlineJobContext
 {
@@ -48,11 +52,17 @@ final class InlineJobContext
         return 'inline';
     }
 
+    /**
+     * @throws \RuntimeException always: there is no queue to release the job back to
+     */
     public function release(int $delaySeconds): void
     {
         throw new \RuntimeException(sprintf('Handler "%s" asked to be released in %d s, but it runs inline without lwa_queues', $this->handler, $delaySeconds));
     }
 
+    /**
+     * @throws \RuntimeException always, carrying $reason
+     */
     public function fail(string $reason): void
     {
         throw new \RuntimeException($reason);
@@ -60,8 +70,6 @@ final class InlineJobContext
 
     public function log(string $line): void
     {
-        if (class_exists(\PrestaShopLogger::class)) {
-            \PrestaShopLogger::addLog(sprintf('[lwa inline:%s] %s', $this->handler, $line), 1);
-        }
+        SafeLog::info(sprintf('[lwa inline:%s] %s', $this->handler, $line));
     }
 }

@@ -69,7 +69,86 @@ final class ClockTest extends TestCase
     }
 
     /**
-     * @return list<array{0: string, 1: \DateTimeZone}>
+     * @return array<string, array{0: string}>
+     */
+    public static function invalidDateTimeProvider(): array
+    {
+        return [
+            'empty string' => [''],
+            'relative phrase' => ['tomorrow'],
+            'embedded offset' => ['2026-01-01 00:00:00+05:00'],
+            'rolled-over day' => ['2026-02-31 10:00:00'],
+            'zero date' => ['0000-00-00 00:00:00'],
+            'date only' => ['2026-01-01'],
+            'trailing newline' => ["2026-01-01 00:00:00\n"],
+        ];
+    }
+
+    #[DataProvider('invalidDateTimeProvider')]
+    public function testToShopTimeRejectsAnythingButAStoredDateTime(string $input): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        (new Clock(new \DateTimeZone('Europe/Riga')))->toShopTime($input);
+    }
+
+    #[DataProvider('invalidDateTimeProvider')]
+    public function testToUtcRejectsAnythingButAWallClockDateTime(string $input): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        (new Clock(new \DateTimeZone('Europe/Riga')))->toUtc($input);
+    }
+
+    /**
+     * @return array<string, array{0: string, 1: string}>
+     */
+    public static function shopTimezoneProvider(): array
+    {
+        return [
+            'Moscow, no DST' => ['Europe/Moscow', '2026-07-01 15:00:00'],
+            'Paris, summer' => ['Europe/Paris', '2026-07-01 14:00:00'],
+            'Kolkata, half-hour offset' => ['Asia/Kolkata', '2026-07-01 17:30:00'],
+            'Kathmandu, 45-minute offset' => ['Asia/Kathmandu', '2026-07-01 17:45:00'],
+            'Tokyo' => ['Asia/Tokyo', '2026-07-01 21:00:00'],
+            'Sydney, southern winter' => ['Australia/Sydney', '2026-07-01 22:00:00'],
+            'Los Angeles, previous day' => ['America/Los_Angeles', '2026-07-01 05:00:00'],
+            'Kiritimati, next day' => ['Pacific/Kiritimati', '2026-07-02 02:00:00'],
+        ];
+    }
+
+    #[DataProvider('shopTimezoneProvider')]
+    public function testConvertsForShopsAroundTheWorld(string $timezone, string $expected): void
+    {
+        $clock = new Clock(new \DateTimeZone($timezone));
+
+        self::assertSame($expected, $clock->toShopTime('2026-07-01 12:00:00'));
+        self::assertSame('2026-07-01 12:00:00', $clock->toUtc($expected));
+    }
+
+    public function testOutputDoesNotDependOnTheProcessLocale(): void
+    {
+        $previous = setlocale(\LC_ALL, '0');
+        $applied = setlocale(\LC_ALL, ['tr_TR.UTF-8', 'ru_RU.UTF-8', 'de_DE.UTF-8', 'fr_FR.UTF-8']);
+
+        try {
+            self::assertSame(
+                'Wednesday 01 July 2026 15:00',
+                (new Clock(new \DateTimeZone('Europe/Moscow')))->toShopTime('2026-07-01 12:00:00', 'l d F Y H:i'),
+                false === $applied ? 'no non-English locale installed; ran under the default' : (string) $applied
+            );
+        } finally {
+            setlocale(\LC_ALL, (string) $previous);
+        }
+    }
+
+    public function testTheRejectedValueIsQuotedCleanAndCapped(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('"0123456789abcdefFORGED01234567" is not a valid Y-m-d H:i:s date-time');
+        (new Clock(new \DateTimeZone('UTC')))->toShopTime("0123456789abcdef\nFORGED\x7F0123456789tail" /* cut at 32 bytes, then stripped */);
+    }
+
+    /**
+     * @return array<string, array{0: string, 1: \DateTimeZone}>
      */
     public static function utcRoundTripProvider(): array
     {

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace LWA\Kit\Tests\Unit\Install;
 
 use LWA\Kit\Install\ModuleUninstaller;
+use LWA\Kit\Install\SqlRunner;
 use PHPUnit\Framework\TestCase;
 
 final class ModuleUninstallerTest extends TestCase
@@ -15,35 +16,26 @@ final class ModuleUninstallerTest extends TestCase
     {
         \Db::reset();
         \Configuration::reset();
-        \Configuration::updateValue('LWA_FIXTURE_ENABLED', '1');
+        \Configuration::updateGlobalValue('LWA_FIXTURE_ENABLED', '1');
         \Configuration::updateValue('LWA_FIXTURE_TOKEN', 'abc');
-        $module = new \Module();
-        $module->name = 'lwa_fixture';
-        $this->uninstaller = new ModuleUninstaller($module, __DIR__ . '/../../Fixtures', 'ps_', 'InnoDB');
+        $this->uninstaller = new ModuleUninstaller(new SqlRunner(__DIR__ . '/../../Fixtures', 'ps_', 'InnoDB'));
     }
 
     public function testDropsTablesAndDeletesConfiguration(): void
     {
-        self::assertTrue($this->uninstaller->run('sql/uninstall.sql', ['LWA_FIXTURE_ENABLED', 'LWA_FIXTURE_TOKEN'], false));
+        self::assertTrue($this->uninstaller->run('sql/uninstall.sql', ['LWA_FIXTURE_ENABLED', 'LWA_FIXTURE_TOKEN']));
 
         self::assertSame(['DROP TABLE IF EXISTS `ps_lwa_fixture_item`'], \Db::$executed);
-        self::assertFalse(\Configuration::hasKey('LWA_FIXTURE_ENABLED'));
-        self::assertFalse(\Configuration::hasKey('LWA_FIXTURE_TOKEN'));
+        self::assertFalse(\Configuration::get('LWA_FIXTURE_ENABLED'));
+        self::assertFalse(\Configuration::get('LWA_FIXTURE_TOKEN'));
     }
 
-    public function testKeepDataLeavesEverythingInPlace(): void
-    {
-        self::assertTrue($this->uninstaller->run('sql/uninstall.sql', ['LWA_FIXTURE_ENABLED'], true));
-
-        self::assertSame([], \Db::$executed);
-        self::assertTrue(\Configuration::hasKey('LWA_FIXTURE_ENABLED'));
-    }
-
-    public function testReportsSqlFailure(): void
+    public function testASqlFailureLeavesTheConfigurationInPlace(): void
     {
         \Db::$failOn = ['DROP TABLE'];
 
-        self::assertFalse($this->uninstaller->run('sql/uninstall.sql', [], false));
+        self::assertFalse($this->uninstaller->run('sql/uninstall.sql', ['LWA_FIXTURE_ENABLED']));
+        self::assertSame('1', \Configuration::get('LWA_FIXTURE_ENABLED'));
     }
 
     public function testForModuleReadsTheStorePathAndPrefixFromPrestaShopConstants(): void
@@ -55,7 +47,7 @@ final class ModuleUninstallerTest extends TestCase
 
         $uninstaller = ModuleUninstaller::forModule($module);
 
-        self::assertTrue($uninstaller->run('sql/uninstall.sql', [], false));
+        self::assertTrue($uninstaller->run('sql/uninstall.sql', []));
         self::assertSame(['DROP TABLE IF EXISTS `ps_lwa_fixture_item`'], \Db::$executed);
     }
 

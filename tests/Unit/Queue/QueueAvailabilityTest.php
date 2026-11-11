@@ -36,6 +36,8 @@ final class QueueAvailabilityTest extends TestCase
         self::assertFalse(Queue::available());
         self::assertNull(Queue::dispatch('lwa_fixture', 'record', ['id' => 1]));
         self::assertFalse(class_exists(\LWA\Queues\Api::class, false), 'available() must not autoload-fatal or force-load the class');
+        self::assertNull(Queue::unavailableReason(), 'a provider without the Api class is not a fault');
+        self::assertSame([], \PrestaShopLogger::$logs);
     }
 
     #[RunInSeparateProcess]
@@ -63,17 +65,20 @@ final class QueueAvailabilityTest extends TestCase
     }
 
     #[RunInSeparateProcess]
-    public function testUnavailableWhenSupportsVersionIsAnInstanceMethod(): void
+    public function testAnInstanceSupportsVersionIsIgnoredInFavorOfTheExactMatch(): void
     {
         // method_exists() also reports instance methods, and calling one statically
-        // raises an Error. Degrading to the exact-match check must not blow up.
+        // raises an Error. The kit must fall back to the exact-match check.
         require_once __DIR__ . '/../../Fakes/Queues/LwaQueuesApiNonStaticSupportsVersion.php';
 
         \Module::reset();
         $this->installQueueModule();
 
         self::assertTrue(method_exists(\LWA\Queues\Api::class, 'supportsVersion'));
-        self::assertFalse(Queue::available());
+        // Calling it statically would raise an Error and read as "failed to load".
+        // Detected instead, it is ignored and the matching API_VERSION decides.
+        self::assertTrue(Queue::available());
+        self::assertNull(Queue::unavailableReason());
     }
 
     #[RunInSeparateProcess]

@@ -107,6 +107,20 @@ final class QueueTest extends TestCase
         self::assertSame(3, \PrestaShopLogger::$logs[0]['severity']);
     }
 
+    public function testALoggerThatThrowsNeverEscapesTheBridge(): void
+    {
+        // The database outage that broke the dispatch usually breaks the logger too.
+        $this->installQueueModule();
+        Api::$throw = new \RuntimeException('db gone');
+        \PrestaShopLogger::$throw = new \RuntimeException('db still gone');
+
+        self::assertNull(Queue::dispatch('lwa_fixture', 'record'));
+        self::assertNull(Queue::dispatchOrRun(new ModuleWithJobs(), 'record'));
+
+        \Module::$throwOnGetInstance = new \RuntimeException('missing scoped autoload');
+        self::assertFalse(Queue::available());
+    }
+
     public function testDispatchOrRunQueuesWhenPossible(): void
     {
         $this->installQueueModule();

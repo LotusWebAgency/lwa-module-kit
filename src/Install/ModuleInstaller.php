@@ -19,36 +19,40 @@ declare(strict_types=1);
 
 namespace LWA\Kit\Install;
 
+/**
+ * The steps of a module's install(): SQL script, hooks, configuration defaults. Each
+ * returns false on failure so install() can chain them with &&.
+ *
+ *   $installer = ModuleInstaller::forModule($this);
+ *   return parent::install()
+ *       && $installer->runSqlFile('sql/install.sql')
+ *       && $installer->registerHooks(['actionCronJob'])
+ *       && $installer->seedConfiguration(['LWA_FOO_ENABLED' => 1]);
+ */
 final class ModuleInstaller
 {
-    public function __construct(
-        private \Module $module,
-        private string $modulePath,
-        private string $dbPrefix,
-        private string $engine,
-    ) {
+    public function __construct(private \Module $module, private SqlRunner $sql)
+    {
     }
 
+    /**
+     * @throws \LogicException outside a booted PrestaShop
+     */
     public static function forModule(\Module $module): self
     {
-        return new self(
-            $module,
-            rtrim((string) constant('_PS_MODULE_DIR_'), '/') . '/' . $module->name,
-            (string) constant('_DB_PREFIX_'),
-            (string) constant('_MYSQL_ENGINE_')
-        );
+        return new self($module, SqlRunner::forModule($module));
     }
 
+    /**
+     * @param string $relativePath path inside the module directory, e.g. "sql/install.sql"
+     *
+     * @return bool false as soon as a statement fails; earlier statements stay applied
+     *
+     * @throws \RuntimeException when the file is unreadable or holds no statement
+     */
     public function runSqlFile(string $relativePath): bool
     {
-        $db = \Db::getInstance();
-        foreach (SqlScript::load($this->modulePath . '/' . ltrim($relativePath, '/'), $this->dbPrefix, $this->engine) as $statement) {
-            if (!$db->execute($statement)) {
-                return false;
-            }
-        }
-
-        return true;
+        return $this->sql->run($relativePath);
     }
 
     /**
@@ -66,7 +70,10 @@ final class ModuleInstaller
     }
 
     /**
-     * Writes defaults for keys that do not exist yet; existing values survive reinstalls and upgrades.
+     * Writes shop-wide defaults for keys that have no global value yet; existing values
+     * survive reinstalls and upgrades. Both the check and the write use the global scope,
+     * whatever shop context the install runs in, so a per-shop value a merchant set in
+     * multistore is never touched.
      *
      * @param array<string, scalar> $defaults
      */
@@ -76,7 +83,7 @@ final class ModuleInstaller
             if (\Configuration::hasKey($key)) {
                 continue;
             }
-            if (!\Configuration::updateValue($key, $value)) {
+            if (!\Configuration::updateGlobalValue($key, $value)) {
                 return false;
             }
         }

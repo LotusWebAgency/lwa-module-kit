@@ -23,6 +23,10 @@ namespace LWA\Kit;
  * Storage is always UTC `DATETIME` (`Y-m-d H:i:s`); shop time exists only at display.
  * This is the single place a module converts between the two.
  *
+ * Input is strict: exactly `Y-m-d H:i:s` and a real calendar date. An empty string, a
+ * relative phrase ("tomorrow"), an embedded UTC offset, `0000-00-00 00:00:00` or
+ * February 31 raise \InvalidArgumentException instead of quietly becoming another instant.
+ *
  * Round-tripping a value this class produced always holds: toUtc(toShopTime($utc)) === $utc,
  * because converting a UTC instant to a shop timezone and back always resolves the same
  * instant unambiguously.
@@ -47,6 +51,9 @@ final class Clock
     {
     }
 
+    /**
+     * A clock in the shop's PS_TIMEZONE, or UTC when that is unset or not a timezone.
+     */
     public static function forShop(): self
     {
         $name = \Configuration::get('PS_TIMEZONE');
@@ -60,6 +67,9 @@ final class Clock
         return new self($timezone);
     }
 
+    /**
+     * The current instant in the storage format.
+     */
     public static function utcNow(): string
     {
         if (null !== self::$frozenUtc) {
@@ -69,18 +79,42 @@ final class Clock
         return (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->format(self::FORMAT);
     }
 
+    /**
+     * @param string $utcDateTime a stored value, `Y-m-d H:i:s` in UTC
+     * @param string $format a date() format for the result
+     *
+     * @throws \InvalidArgumentException when $utcDateTime is not a valid `Y-m-d H:i:s`
+     */
     public function toShopTime(string $utcDateTime, string $format = self::FORMAT): string
     {
-        return (new \DateTimeImmutable($utcDateTime, new \DateTimeZone('UTC')))
+        return self::parse($utcDateTime, new \DateTimeZone('UTC'))
             ->setTimezone($this->shopTimezone)
             ->format($format);
     }
 
+    /**
+     * @param string $shopDateTime `Y-m-d H:i:s` on the shop's wall clock
+     *
+     * @throws \InvalidArgumentException when $shopDateTime is not a valid `Y-m-d H:i:s`
+     */
     public function toUtc(string $shopDateTime): string
     {
-        return (new \DateTimeImmutable($shopDateTime, $this->shopTimezone))
+        return self::parse($shopDateTime, $this->shopTimezone)
             ->setTimezone(new \DateTimeZone('UTC'))
             ->format(self::FORMAT);
+    }
+
+    private static function parse(string $dateTime, \DateTimeZone $timezone): \DateTimeImmutable
+    {
+        $parsed = \DateTimeImmutable::createFromFormat('!' . self::FORMAT, $dateTime, $timezone);
+        // A rolled-over date (February 31) parses, and is reported only as a warning.
+        $errors = \DateTimeImmutable::getLastErrors();
+
+        if (false === $parsed || (false !== $errors && $errors['warning_count'] > 0)) {
+            throw new \InvalidArgumentException(sprintf('"%s" is not a valid %s date-time', preg_replace('/[^\x20-\x7E]/', '', substr($dateTime, 0, 32)), self::FORMAT));
+        }
+
+        return $parsed;
     }
 
     /**
