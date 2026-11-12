@@ -144,3 +144,30 @@ namespace LWA\Queues {
         }
     }
 }
+
+/*
+ * No supportsVersion(), like the LWA\Queues stub: phpstan must not be able to fold Logger's
+ * runtime method_exists() check away.
+ */
+
+namespace LWA\Logger {
+    final class Api
+    {
+        public const API_VERSION = 1;
+
+        /** @param array<string, mixed> $context @param array<string, mixed> $options */
+        public static function log(string $module, string $severity, string $event, string $message = '', array $context = [], array $options = []): void
+        {
+        }
+
+        public static function enabled(string $severity, string $type = 'module'): bool
+        {
+            return false;
+        }
+
+        public static function requestId(): string
+        {
+            return '';
+        }
+    }
+}

@@ -1,6 +1,6 @@
 {
     "name": "lwa/module-kit",
-    "description": "Build-time helpers shared by lwa_ PrestaShop modules: PrestaShop 8/9 shims, token gate, install helpers, queue bridge",
+    "description": "Build-time helpers shared by lwa_ PrestaShop modules: PrestaShop 8/9 shims, token gate, install helpers, queue bridge, log bridge",
     "type": "library",
     "license": "MIT",
     "require": {

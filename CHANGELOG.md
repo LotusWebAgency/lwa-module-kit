@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.1 - 2026-11-12
+
+Changed:
+
+- README and tests use a generic example module name. No code change.
+
+## 0.4.0 - 2026-11-12
+
+Added:
+
+- `Log\Logger` and `Log\ModuleLogger`, a bridge to the `lwa_logger` module that falls back to `PrestaShopLogger` for warning and above. Consumers must exclude `LWA\Logger` in `scoper.inc.php`.
+
 ## 0.3.0 - 2026-11-11
 
 Breaking:

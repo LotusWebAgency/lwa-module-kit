@@ -11,7 +11,8 @@ the life of that module release.
 The one exception is `LWA\Queues\Api`, which stays **unscoped** on purpose:
 every `lwa_` module in a shop must see the same class when they talk to
 `lwa_queues`, so it cannot be prefixed per-module like everything else. Only
-scalars and arrays are allowed to cross that boundary.
+scalars and arrays are allowed to cross that boundary. `LWA\Logger\Api`, the API of
+`lwa_logger`, is unscoped for the same reason.
 
 ## Components
 
@@ -22,6 +23,7 @@ scalars and arrays are allowed to cross that boundary.
 | `Install\ModuleInstaller`, `Install\ModuleUninstaller`, `Install\SqlScript` | The steps of `install()` and `uninstall()`. |
 | `Compat\AdminControllerBase`, `Compat\PsVersion` | One admin controller parent for PrestaShop 8 and 9; version checks. |
 | `Queue\Queue`, `Queue\HandlesQueueJobs`, `Queue\Job`, `Queue\InlineJobContext` | The bridge to `lwa_queues`. |
+| `Log\Logger`, `Log\ModuleLogger` | The bridge to `lwa_logger`, with a `PrestaShopLogger` fallback. |
 
 Everything under `Internal\`, and `Install\SqlRunner`, is `@internal`: a module must not
 call it.
@@ -133,10 +135,36 @@ authors need to know about:
   execution for the rest of that request — the cache only picks up the new
   state on the next one.
 
+## Log bridge
+
+`Log\Logger::for($module)` returns a `ModuleLogger` that logs through the lwa_logger
+module:
+
+    use LWA\Kit\Log\Logger;
+
+    Logger::for('lwa_example')->warning('sync.skipped', 'Feed row has no price', $ctx);
+
+The methods are `debug`, `info`, `notice`, `warning`, `error`, `critical`, `alert` and
+`emergency`, each taking `($event, $message = '', $context = [], $options = [])`, plus
+`log($severity, ...)`, `enabled($severity, $type = 'module')` and `requestId()`. It does
+not implement `Psr\Log\LoggerInterface`.
+
+- It never throws. A missing, disabled, broken or version-incompatible lwa_logger, or a
+  provider call that throws, degrades to the fallback.
+- The fallback writes `warning` and above to `PrestaShopLogger` as
+  `[module] event: message`, with duplicates allowed, the message stripped of the
+  characters core validation rejects and cut to 1000 characters. The context is not
+  written. `debug`, `info` and `notice` are dropped.
+- `Logger::available()` is memoized for the process, so enabling lwa_logger takes effect
+  on the next request. `Logger::unavailableReason()` explains a broken or incompatible
+  provider. While it is unavailable, `enabled()` is `true` exactly for the severities the
+  fallback writes (warning and above) and `requestId()` is `null`; a throwing `enabled()`
+  answers the same way.
+
 ## Rules
 
-PHP 8.1 syntax. The queue bridge must load and degrade where PrestaShop or
-`lwa_queues` is absent or broken, so it reaches PrestaShop classes only behind
+PHP 8.1 syntax. The queue and log bridges must load and degrade where PrestaShop,
+`lwa_queues` or `lwa_logger` is absent or broken, so it reaches PrestaShop classes only behind
 `class_exists()`; the other components assume a booted shop. Every public
 method is unit-tested with the fakes in `tests/Fakes`. The fakes are hand-written, so
 the same assumptions are checked against the real PrestaShop classes by
@@ -146,7 +174,7 @@ runs on every PrestaShop cell. PHPStan runs at level
 
 ## Consuming
 
-    composer require lwa/module-kit:^0.3
+    composer require lwa/module-kit:^0.4
 
 The kit is published on Packagist. It is a build-time dependency: a module must
 not ship it as-is, it has to prefix it with php-scoper first.
@@ -158,7 +186,8 @@ own kit version. Without a prefix, the first module to load `LWA\Kit\Queue\Queue
 would win and every other module would silently run against the wrong version.
 Prefixing gives each module a private copy under `LwaScoped\<Name>\LWA\Kit\*`.
 `LWA\Queues\Api` is the one deliberately unscoped class: all modules must see
-the same one when they talk to `lwa_queues`.
+the same one when they talk to `lwa_queues`, and likewise `LWA\Logger\Api` for
+`lwa_logger`.
 
 ### How
 
@@ -174,8 +203,10 @@ Add a `scoper.inc.php` at the module root:
   `LICENSE`, `*.md`, `*.dist`, `Makefile`, `CHANGELOG` or `UPGRADE`.
 - `exclude-namespaces` keeps the real name of: the global namespace (`~^$~`, so
   `\Module` and other global classes still resolve), `PrestaShop`,
-  `PrestaShopBundle`, `Symfony`, `Doctrine`, `Twig`, `Psr`, `LWA\Queues` and the
-  module's own namespace.
+  `PrestaShopBundle`, `Symfony`, `Doctrine`, `Twig`, `Psr`, `LWA\Queues`, `LWA\Logger` and the
+  module's own namespace. Without the `LWA\Logger` entry the scoper prefixes the
+  call to `lwa_logger`'s API and the bridge never finds it, so every call takes the
+  fallback.
 - `exclude-constants` keeps `_PS_*`, `_DB_*`, `_MYSQL_*` and `_COOKIE_*`, and
   `expose-global-constants`, `expose-global-classes` and
   `expose-global-functions` are `false`. Without these, a module that reads

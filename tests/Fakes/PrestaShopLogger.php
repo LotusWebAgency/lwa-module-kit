@@ -5,7 +5,7 @@ declare(strict_types=1);
 if (!class_exists('PrestaShopLogger', false)) {
     final class PrestaShopLogger
     {
-        /** @var list<array{message: string, severity: int}> */
+        /** @var list<array{message: string, severity: int, allowDuplicate: bool}> */
         public static array $logs = [];
 
         public static ?Throwable $throw = null;
@@ -22,7 +22,7 @@ if (!class_exists('PrestaShopLogger', false)) {
                 throw self::$throw;
             }
 
-            self::$logs[] = ['message' => $message, 'severity' => $severity];
+            self::$logs[] = ['message' => $message, 'severity' => $severity, 'allowDuplicate' => $allowDuplicate];
 
             return true;
         }
