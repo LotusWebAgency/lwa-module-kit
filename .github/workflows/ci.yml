@@ -26,6 +26,9 @@ jobs:
       - run: composer install --no-interaction --no-progress
       - run: composer validate --strict --no-interaction
       - run: composer audit --locked --abandoned=ignore --no-interaction
+      - run: composer install --working-dir=tools --no-interaction --no-progress
+      - run: composer validate --strict --no-interaction --working-dir=tools
+      - run: composer audit --locked --abandoned=ignore --no-interaction --working-dir=tools
 
   cs:
     runs-on: ubuntu-latest
@@ -36,8 +39,8 @@ jobs:
           php-version: '8.5'
           tools: composer
           coverage: none
-      - run: composer install --no-interaction --no-progress
-      - run: vendor/bin/php-cs-fixer fix --dry-run --diff --config=.php-cs-fixer.dist.php
+      - run: composer install --working-dir=tools --no-interaction --no-progress
+      - run: tools/vendor/bin/php-cs-fixer fix --dry-run --diff --config=.php-cs-fixer.dist.php
 
   stan:
     runs-on: ubuntu-latest

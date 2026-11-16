@@ -9,7 +9,7 @@ Run the same gates CI runs:
     composer install --no-interaction --no-progress
     just check
 
-`just check` runs `composer validate`, `composer audit`, php-cs-fixer, PHPStan at level 9 and the unit tests. `just cs-fix` applies the code style.
+`just check` installs the style tooling in `tools/`, then runs `composer validate`, `composer audit`, php-cs-fixer, PHPStan at level `max` and the unit tests. `just fix` applies the code style.
 
 Shipped code is PHP 8.1 syntax only (no readonly classes, DNF types, typed class constants or `#[\Override]`), and the unit tests use the fakes in `tests/Fakes` and never boot PrestaShop. A change to behavior comes with a test.
 

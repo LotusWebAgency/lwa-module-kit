@@ -1,0 +1,17 @@
+{
+    "name": "lwa/module-kit-tools",
+    "description": "Code style and PrestaShop analysis tooling for lwa/module-kit, kept out of the kit's own vendor/",
+    "license": "MIT",
+    "require-dev": {
+        "friendsofphp/php-cs-fixer": "^3.95",
+        "prestashop/php-dev-tools": "^5.0"
+    },
+    "config": {
+        "allow-plugins": false,
+        "platform": {
+            "php": "8.1.0"
+        },
+        "sort-packages": true
+    },
+    "minimum-stability": "stable"
+}

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.2 - 2026-11-17
+
+Changed:
+
+- php-cs-fixer and php-dev-tools now install in `tools/`, outside the kit's `vendor/`. No code change.
+
 ## 0.4.1 - 2026-11-12
 
 Changed:
